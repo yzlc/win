@@ -1,0 +1,9 @@
+[user]
+	name = yzlc
+	email = yzlc233@outlook.com
+[https]
+	proxy = socks5://127.0.0.1:10808
+[http]
+	proxy = socks5://127.0.0.1:10808
+[credential]
+	helper = store

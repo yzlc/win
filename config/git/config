@@ -1,5 +1,0 @@
-Host github.com
-        User    git
-        Hostname        github.com
-        Port    22
-        ProxyCommand connect -S localhost:10808 %h %p

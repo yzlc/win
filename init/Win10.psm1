@@ -3261,15 +3261,15 @@ Function UninstallMsftBloat {
 	Get-AppxPackage "Microsoft.WindowsFeedbackHub" | Remove-AppxPackage
 	Get-AppxPackage "Microsoft.WindowsMaps" | Remove-AppxPackage
 	Get-AppxPackage "Microsoft.WindowsPhone" | Remove-AppxPackage
-	Get-AppxPackage "Microsoft.Windows.Photos" | Remove-AppxPackage
+	#Get-AppxPackage "Microsoft.Windows.Photos" | Remove-AppxPackage
 	Get-AppxPackage "Microsoft.WindowsReadingList" | Remove-AppxPackage
 	Get-AppxPackage "Microsoft.WindowsScan" | Remove-AppxPackage
 	Get-AppxPackage "Microsoft.WindowsSoundRecorder" | Remove-AppxPackage
 	Get-AppxPackage "Microsoft.WinJS.1.0" | Remove-AppxPackage
 	Get-AppxPackage "Microsoft.WinJS.2.0" | Remove-AppxPackage
 	Get-AppxPackage "Microsoft.YourPhone" | Remove-AppxPackage
-	Get-AppxPackage "Microsoft.ZuneMusic" | Remove-AppxPackage
-	Get-AppxPackage "Microsoft.ZuneVideo" | Remove-AppxPackage
+	#Get-AppxPackage "Microsoft.ZuneMusic" | Remove-AppxPackage
+	#Get-AppxPackage "Microsoft.ZuneVideo" | Remove-AppxPackage
 	Get-AppxPackage "Microsoft.Advertising.Xaml" | Remove-AppxPackage # Dependency for microsoft.windowscommunicationsapps, Microsoft.BingWeather
 }
 

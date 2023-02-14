@@ -5,5 +5,6 @@ git config --global pull.rebase false
 git config --global pull.ff false
 
 git config --global core.excludesfile .gitignore
+git config --global credential.helper manager
 
 exit

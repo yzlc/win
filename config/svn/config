@@ -1,2 +1,2 @@
 [miscellany]
-global-ignores = target out logs data .settings .classpath .project .idea *.iml
+global-ignores = target out logs data .settings .classpath .project .idea *.iml node_modules package-lock.json

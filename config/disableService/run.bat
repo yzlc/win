@@ -3,4 +3,5 @@
 sc config DiagTrack start= demand
 sc config SysMain start= demand
 sc config WSearch start= demand
+sc config W32Time start= auto
 exit

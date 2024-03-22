@@ -1,5 +1,6 @@
 @echo off
 chcp 65001
+cd %~dp0
 start "" "Path of Exile.url"
 ::start "" "%APPDATA%\Microsoft\Windows\Start Menu\Programs\C1rdec\Poe Lurker.lnk"
 start "" "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Scoop Apps\Awakened-PoE-Trade.lnk"

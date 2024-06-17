@@ -8,9 +8,41 @@
 <mirrors>
     <mirror>
           <id>aliyun</id>
-          <mirrorOf>central</mirrorOf>
+          <mirrorOf>repo1</mirrorOf>
           <name>Nexus aliyun</name>
           <url>https://maven.aliyun.com/nexus/content/groups/public</url>
     </mirror>
+
+    <mirror>
+        <id>huaweicloud</id>
+        <name>Nexus huaweicloud</name>
+        <url>https://repo.huaweicloud.com/repository/maven/huaweicloudsdk/</url>
+        <mirrorOf>repo2</mirrorOf>
+     </mirror>
   </mirrors>
+
+  <profiles>
+      <profile>
+          <id>repo1-profile</id>
+          <repositories>
+              <repository>
+                  <id>repo1</id>
+                  <url>https://maven.aliyun.com/repository/public/</url>
+              </repository>
+          </repositories>
+      </profile>
+      <profile>
+          <id>repo2-profile</id>
+          <repositories>
+              <repository>
+                  <id>repo2</id>
+                  <url>https://repo.huaweicloud.com/repository/maven/huaweicloudsdk/</url>
+              </repository>
+          </repositories>
+      </profile>
+  </profiles>
+  <activeProfiles>
+      <activeProfile>repo1-profile</activeProfile>
+      <activeProfile>repo2-profile</activeProfile>
+  </activeProfiles>
 </settings>

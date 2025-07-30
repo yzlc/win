@@ -1,3 +1,4 @@
+cd %~dp0
 copy .gitignore %USERPROFILE%
 
 git config --global user.name "lim"

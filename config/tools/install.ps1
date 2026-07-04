@@ -109,11 +109,40 @@ function Invoke-PinToStart {
     }
 }
 
+function Normalize-DesktopAppLinks {
+    param(
+        [AllowEmptyCollection()]
+        [string[]]$DesktopAppLinks
+    )
+
+    $links = New-Object System.Collections.ArrayList
+    foreach ($link in @($DesktopAppLinks)) {
+        if ($null -eq $link) {
+            continue
+        }
+
+        foreach ($part in ([string]$link -split "\s+(?=%APPDATA%\\)")) {
+            $trimmed = $part.Trim()
+            if ($trimmed) {
+                [void]$links.Add($trimmed)
+            }
+        }
+    }
+
+    return @($links)
+}
+
 function Set-StartPinsPolicy {
     param(
         [Parameter(Mandatory = $true)]
         [string[]]$DesktopAppLinks
     )
+
+    $DesktopAppLinks = @(Normalize-DesktopAppLinks -DesktopAppLinks $DesktopAppLinks)
+    $desiredLinks = @{}
+    foreach ($link in $DesktopAppLinks) {
+        $desiredLinks[$link.ToLowerInvariant()] = $true
+    }
 
     $policyPath = "HKCU:\Software\Policies\Microsoft\Windows\Explorer"
     $policyName = "ConfigureStartPins"
@@ -126,10 +155,20 @@ function Set-StartPinsPolicy {
             try {
                 $policy = $existing.$policyName | ConvertFrom-Json
                 foreach ($pin in @($policy.pinnedList)) {
+                    if ($pin.desktopAppLink) {
+                        $pinLink = [string]$pin.desktopAppLink
+                        $pinKey = $pinLink.ToLowerInvariant()
+                        $isExistingWinPin = $desiredLinks.ContainsKey($pinKey)
+                        $isMalformedWinPin = $pinLink -match "\.lnk\s+%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\win\\"
+                        if ($isExistingWinPin -or $isMalformedWinPin) {
+                            continue
+                        }
+                    }
+
                     [void]$pins.Add($pin)
                 }
             } catch {
-                Write-Output "Existing Start pins policy is not valid JSON; replacing it."
+                Write-Host "Existing Start pins policy is not valid JSON; replacing it."
             }
         }
 
@@ -151,8 +190,8 @@ function Set-StartPinsPolicy {
         New-Item -Path $policyPath -Force -ErrorAction Stop | Out-Null
         $json = [ordered]@{pinnedList = @($pins)} | ConvertTo-Json -Depth 8 -Compress
         Set-ItemProperty -Path $policyPath -Name $policyName -Type String -Value $json -ErrorAction Stop
-        Write-Output "Applied Windows Start pins policy for current user."
-        Write-Output "If pins do not appear immediately, sign out and sign in again."
+        Write-Host "Applied Windows Start pins policy for current user."
+        Write-Host "If pins do not appear immediately, sign out and sign in again."
 
         Stop-Process -Name StartMenuExperienceHost -Force -ErrorAction SilentlyContinue
         return [pscustomobject]@{
@@ -162,8 +201,8 @@ function Set-StartPinsPolicy {
         }
     } catch {
         $accessDenied = $_.Exception -is [System.UnauthorizedAccessException] -or $_.Exception.Message -match "Access.*denied|拒绝访问|权限"
-        Write-Output "Could not apply Windows Start pins policy: $($_.Exception.Message)"
-        Write-Output "Shortcuts were created in the Start menu; pin them manually if needed."
+        Write-Host "Could not apply Windows Start pins policy: $($_.Exception.Message)"
+        Write-Host "Shortcuts were created in the Start menu; pin them manually if needed."
         return [pscustomobject]@{
             Success = $false
             AccessDenied = $accessDenied
@@ -180,8 +219,8 @@ function Invoke-ElevatedStartPinsPolicy {
 
     $pinsFile = Join-Path $env:TEMP "win-start-pins-$([Guid]::NewGuid().ToString('N')).json"
     try {
-        $DesktopAppLinks | ConvertTo-Json -Compress | Set-Content -LiteralPath $pinsFile -Encoding UTF8
-        Write-Output "Start pins policy needs elevation; requesting administrator approval..."
+        ConvertTo-Json -InputObject @($DesktopAppLinks) -Compress | Set-Content -LiteralPath $pinsFile -Encoding UTF8
+        Write-Host "Start pins policy needs elevation; requesting administrator approval..."
 
         $arguments = @(
             "-NoProfile",
@@ -195,14 +234,14 @@ function Invoke-ElevatedStartPinsPolicy {
         )
         $process = Start-Process -FilePath "powershell.exe" -ArgumentList $arguments -Verb RunAs -WindowStyle Hidden -Wait -PassThru
         if ($process.ExitCode -eq 0) {
-            Write-Output "Applied Windows Start pins policy with elevation."
+            Write-Host "Applied Windows Start pins policy with elevation."
             return $true
         }
 
-        Write-Output "Elevated Start pins policy helper failed with exit code $($process.ExitCode)."
+        Write-Host "Elevated Start pins policy helper failed with exit code $($process.ExitCode)."
         return $false
     } catch {
-        Write-Output "Could not request elevation for Start pins policy: $($_.Exception.Message)"
+        Write-Host "Could not request elevation for Start pins policy: $($_.Exception.Message)"
         return $false
     } finally {
         Remove-Item -LiteralPath $pinsFile -Force -ErrorAction SilentlyContinue

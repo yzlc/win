@@ -175,8 +175,8 @@ foreach ($tool in $tools) {
     $scriptPath = (Resolve-Path -LiteralPath $tool.Script).Path
     $shortcutPath = Join-Path $startMenuDir "$($tool.Name).lnk"
     $shortcut = $shortcutShell.CreateShortcut($shortcutPath)
-    $shortcut.TargetPath = $env:ComSpec
-    $shortcut.Arguments = "/c `"$scriptPath`""
+    $shortcut.TargetPath = $scriptPath
+    $shortcut.Arguments = ""
     $shortcut.WorkingDirectory = Split-Path -Parent $scriptPath
     $shortcut.Save()
 

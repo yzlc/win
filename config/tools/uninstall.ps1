@@ -2,6 +2,7 @@ $ErrorActionPreference = "Stop"
 
 $startMenuRoot = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
 $startMenuDir = Join-Path $startMenuRoot "win"
+$scoopAppsDir = Join-Path $startMenuRoot "Scoop Apps"
 $currentShortcutNames = @(
     "POE App.lnk",
     "POE CN.lnk",
@@ -66,7 +67,8 @@ $shortcutShell = New-Object -ComObject Shell.Application
 foreach ($name in $shortcutNames) {
     $paths = @(
         (Join-Path $startMenuRoot $name),
-        (Join-Path $startMenuDir $name)
+        (Join-Path $startMenuDir $name),
+        (Join-Path $scoopAppsDir $name)
     )
 
     foreach ($path in $paths) {
@@ -93,6 +95,7 @@ if ($policyValue -and $policyValue.$policyName) {
         foreach ($name in $shortcutNames) {
             $ownDesktopAppLinks["%APPDATA%\Microsoft\Windows\Start Menu\Programs\$name".ToLowerInvariant()] = $true
             $ownDesktopAppLinks["%APPDATA%\Microsoft\Windows\Start Menu\Programs\win\$name".ToLowerInvariant()] = $true
+            $ownDesktopAppLinks["%APPDATA%\Microsoft\Windows\Start Menu\Programs\Scoop Apps\$name".ToLowerInvariant()] = $true
         }
         $remainingPins = @(
             foreach ($pin in @($policy.pinnedList)) {

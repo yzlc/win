@@ -1,7 +1,9 @@
 $ErrorActionPreference = "Stop"
 
 $root = $PSScriptRoot
+$startMenuRoot = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
 $startMenuDir = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\win"
+$scoopAppsDir = Join-Path $startMenuRoot "Scoop Apps"
 
 $tools = @(
     @{
@@ -24,6 +26,14 @@ $tools = @(
         Name = "zju-connect"
         Script = Join-Path $root "zju-connect\zju-connect.bat"
     }
+)
+
+$legacyShortcutNames = @(
+    "Win - POE App.lnk",
+    "Win - POE CN.lnk",
+    "Win - Update v2rayN.lnk",
+    "Win - Shutdown 23.lnk",
+    "Win - zju-connect.lnk"
 )
 
 function Invoke-PinToStart {
@@ -143,6 +153,12 @@ function Set-StartPinsPolicy {
     } catch {
         Write-Output "Could not apply Windows Start pins policy: $($_.Exception.Message)"
         Write-Output "Shortcuts were created in the Start menu; pin them manually if needed."
+    }
+}
+
+if (Test-Path -LiteralPath $scoopAppsDir) {
+    foreach ($shortcutName in @($legacyShortcutNames + ($tools | ForEach-Object { "$($_.Name).lnk" }))) {
+        Remove-Item -LiteralPath (Join-Path $scoopAppsDir $shortcutName) -Force -ErrorAction SilentlyContinue
     }
 }
 

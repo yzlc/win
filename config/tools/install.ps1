@@ -65,8 +65,56 @@ function Invoke-PinToStart {
     }
 }
 
+function Set-StartPinsPolicy {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$DesktopAppLinks
+    )
+
+    $policyPath = "HKCU:\Software\Policies\Microsoft\Windows\Explorer"
+    $policyName = "ConfigureStartPins"
+    $pins = New-Object System.Collections.ArrayList
+
+    $existing = Get-ItemProperty -Path $policyPath -Name $policyName -ErrorAction SilentlyContinue
+    if ($existing -and $existing.$policyName) {
+        try {
+            $policy = $existing.$policyName | ConvertFrom-Json
+            foreach ($pin in @($policy.pinnedList)) {
+                [void]$pins.Add($pin)
+            }
+        } catch {
+            Write-Output "Existing Start pins policy is not valid JSON; replacing it."
+        }
+    }
+
+    $knownLinks = @{}
+    foreach ($pin in $pins) {
+        if ($pin.desktopAppLink) {
+            $knownLinks[$pin.desktopAppLink.ToLowerInvariant()] = $true
+        }
+    }
+
+    foreach ($link in $DesktopAppLinks) {
+        $key = $link.ToLowerInvariant()
+        if (!$knownLinks.ContainsKey($key)) {
+            [void]$pins.Add([ordered]@{desktopAppLink = $link})
+            $knownLinks[$key] = $true
+        }
+    }
+
+    New-Item -Path $policyPath -Force | Out-Null
+    $json = [ordered]@{pinnedList = @($pins)} | ConvertTo-Json -Depth 8 -Compress
+    Set-ItemProperty -Path $policyPath -Name $policyName -Type String -Value $json
+    Write-Output "Applied Windows Start pins policy for current user."
+    Write-Output "If pins do not appear immediately, sign out and sign in again."
+
+    Stop-Process -Name StartMenuExperienceHost -Force -ErrorAction SilentlyContinue
+}
+
 New-Item -ItemType Directory -Path $startMenuDir -Force | Out-Null
 $shortcutShell = New-Object -ComObject WScript.Shell
+$pinFailures = @()
+$desktopAppLinks = @()
 
 foreach ($tool in $tools) {
     if (!(Test-Path -LiteralPath $tool.Script)) {
@@ -81,9 +129,16 @@ foreach ($tool in $tools) {
     $shortcut.WorkingDirectory = Split-Path -Parent $scriptPath
     $shortcut.Save()
 
+    $desktopAppLinks += "%APPDATA%\Microsoft\Windows\Start Menu\Programs\win\$($tool.Name).lnk"
+
     if (Invoke-PinToStart -ShortcutPath $shortcutPath) {
         Write-Output "Pinned: $shortcutPath"
     } else {
         Write-Output "Created shortcut, but Windows did not expose Pin to Start: $shortcutPath"
+        $pinFailures += $shortcutPath
     }
+}
+
+if ($pinFailures.Count -gt 0 -and [Environment]::OSVersion.Version.Build -ge 22000) {
+    Set-StartPinsPolicy -DesktopAppLinks $desktopAppLinks
 }

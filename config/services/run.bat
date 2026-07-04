@@ -12,4 +12,4 @@ sc config SSDPSRV start= demand
 sc config TrkWks start= demand
 :: 安全更新提醒
 sc config WpnService start= demand
-exit
+exit /b %ERRORLEVEL%

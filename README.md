@@ -20,3 +20,4 @@ Run scripts from an elevated command prompt only after reviewing the target file
 - `init/Default.cmd` applies `init/Default.preset`. It is intentionally guarded by a confirmation prompt because the preset changes system privacy, security, services, Windows apps, and UI settings.
 - Service startup tweaks are merged into `init/Win10.psm1` and applied from `init/Default.preset`.
 - On Windows 11, Start menu pinning falls back to the current user's `ConfigureStartPins` policy when the shell hides the legacy Pin to Start verb.
+- Before uninstalling with Scoop, leave the package directory or let the manifest `pre_uninstall` move the shell to `%USERPROFILE%`.

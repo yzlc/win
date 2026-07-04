@@ -1,19 +1,32 @@
 @echo off
+setlocal
+
 set "source_dir=%USERPROFILE%\Downloads\Bundles2"
 set "destination_dir=C:\Program Files\Epic Games\PathOfExile\Bundles2"
 
-:: 创建备份文件夹
-if not exist "%destination_dir%\Backup" (
-    mkdir "%destination_dir%\Backup"
+if not exist "%source_dir%\" (
+    echo Missing source directory: %source_dir%
+    exit /b 1
 )
 
-:: 备份目标文件夹中的文件
+if not exist "%destination_dir%\" (
+    echo Missing destination directory: %destination_dir%
+    exit /b 1
+)
+
+if not exist "%destination_dir%\Backup" (
+    mkdir "%destination_dir%\Backup"
+    if errorlevel 1 exit /b %ERRORLEVEL%
+)
+
 for %%F in ("%destination_dir%\*") do (
     if exist "%source_dir%\%%~nxF" (
         move /Y "%%F" "%destination_dir%\Backup\%%~nxF"
+        if errorlevel 1 exit /b %ERRORLEVEL%
     )
 )
 
-:: 将源文件夹中的文件复制到目标文件夹
-xcopy /Y "%source_dir%\*" "%destination_dir%"
-echo 文件替换完成。
+xcopy /Y /I "%source_dir%\*" "%destination_dir%\"
+set "RESULT=%ERRORLEVEL%"
+if "%RESULT%"=="0" echo 文件替换完成。
+exit /b %RESULT%

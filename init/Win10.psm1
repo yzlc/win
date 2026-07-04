@@ -1399,6 +1399,28 @@ Function DisableRemoteDesktop {
 #region Service Tweaks
 ##########
 
+# Set selected services to Manual startup
+Function SetSelectedServicesManual {
+	Write-Output "Setting selected services to Manual startup..."
+	$services = @(
+		@{Name = "whesvc"; Description = "Customer Experience Improvement Program"},
+		@{Name = "DiagTrack"; Description = "Connected User Experiences and Telemetry"},
+		@{Name = "LanmanServer"; Description = "File sharing server"},
+		@{Name = "Spooler"; Description = "Print spooler"},
+		@{Name = "SSDPSRV"; Description = "LAN UPnP discovery"},
+		@{Name = "TrkWks"; Description = "Distributed link tracking"},
+		@{Name = "WpnService"; Description = "Windows push notifications"}
+	)
+	ForEach ($service in $services) {
+		If (Get-Service -Name $service.Name -ErrorAction SilentlyContinue) {
+			Write-Output "Setting $($service.Name) ($($service.Description)) to Manual..."
+			Set-Service -Name $service.Name -StartupType Manual
+		} Else {
+			Write-Output "Skipping missing service: $($service.Name)"
+		}
+	}
+}
+
 # Disable offering of Malicious Software Removal Tool through Windows Update
 Function DisableUpdateMSRT {
 	Write-Output "Disabling Malicious Software Removal Tool offering..."

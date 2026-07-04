@@ -4,7 +4,7 @@ setlocal
 cd /d "%~dp0"
 set "FAILED=0"
 
-for /r "%~dp0" %%i in (run.bat) do (
+for /f "delims=" %%i in ('dir /b /s run.bat ^| sort') do (
     echo Running %%i
     cmd /c ""%%i""
     if errorlevel 1 (

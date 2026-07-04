@@ -1,6 +1,9 @@
 @echo off
 setlocal
 
+set "SCOOP_HOME=%SCOOP%"
+if not defined SCOOP_HOME set "SCOOP_HOME=%USERPROFILE%\scoop"
+
 where scoop >nul 2>nul
 if errorlevel 1 (
     echo Scoop is not available on PATH.
@@ -15,5 +18,5 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "Stop-Process -Name v2ray
 scoop update v2rayn-desktop
 if errorlevel 1 exit /b %ERRORLEVEL%
 
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$exe = Join-Path $env:USERPROFILE 'scoop\apps\v2rayn-desktop\current\v2rayN.exe'; if (!(Test-Path -LiteralPath $exe)) { throw ('Missing ' + $exe) }; Start-Process -FilePath $exe"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$exe = Join-Path $env:SCOOP_HOME 'apps\v2rayn-desktop\current\v2rayN.exe'; if (!(Test-Path -LiteralPath $exe)) { throw ('Missing ' + $exe) }; Start-Process -FilePath $exe"
 exit /b %ERRORLEVEL%

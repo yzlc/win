@@ -18,12 +18,4 @@ Run scripts from an elevated command prompt only after reviewing the target file
 
 - `config/config.bat` runs each module `run.bat` one by one and reports failures.
 - `init/Default.cmd` applies `init/Default.preset`. It is intentionally guarded by a confirmation prompt because the preset changes system privacy, security, services, Windows apps, and UI settings.
-
-## Notes
-
-- Git TLS verification is kept enabled.
-- Git credentials use Git Credential Manager instead of plain-text `credential.helper store`.
-- Conda and pip mirror files are copied from `config/apps/pip/`.
-- Scoop installs this repo into its own app directory; command tool shortcuts are generated from `config/tools/` and use that directory directly.
-- POE and zju-connect helpers are also generated as Start menu shortcuts and pinned when Windows exposes the pin verb.
-- Some scripts contain machine-specific paths such as `C:\Program Files\Epic Games\PathOfExile`; update them before using on another machine.
+- Service startup tweaks are merged into `init/Win10.psm1` and applied from `init/Default.preset`.

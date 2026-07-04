@@ -73,42 +73,48 @@ function Set-StartPinsPolicy {
 
     $policyPath = "HKCU:\Software\Policies\Microsoft\Windows\Explorer"
     $policyName = "ConfigureStartPins"
-    $pins = New-Object System.Collections.ArrayList
 
-    $existing = Get-ItemProperty -Path $policyPath -Name $policyName -ErrorAction SilentlyContinue
-    if ($existing -and $existing.$policyName) {
-        try {
-            $policy = $existing.$policyName | ConvertFrom-Json
-            foreach ($pin in @($policy.pinnedList)) {
-                [void]$pins.Add($pin)
+    try {
+        $pins = New-Object System.Collections.ArrayList
+
+        $existing = Get-ItemProperty -Path $policyPath -Name $policyName -ErrorAction SilentlyContinue
+        if ($existing -and $existing.$policyName) {
+            try {
+                $policy = $existing.$policyName | ConvertFrom-Json
+                foreach ($pin in @($policy.pinnedList)) {
+                    [void]$pins.Add($pin)
+                }
+            } catch {
+                Write-Output "Existing Start pins policy is not valid JSON; replacing it."
             }
-        } catch {
-            Write-Output "Existing Start pins policy is not valid JSON; replacing it."
         }
-    }
 
-    $knownLinks = @{}
-    foreach ($pin in $pins) {
-        if ($pin.desktopAppLink) {
-            $knownLinks[$pin.desktopAppLink.ToLowerInvariant()] = $true
+        $knownLinks = @{}
+        foreach ($pin in $pins) {
+            if ($pin.desktopAppLink) {
+                $knownLinks[$pin.desktopAppLink.ToLowerInvariant()] = $true
+            }
         }
-    }
 
-    foreach ($link in $DesktopAppLinks) {
-        $key = $link.ToLowerInvariant()
-        if (!$knownLinks.ContainsKey($key)) {
-            [void]$pins.Add([ordered]@{desktopAppLink = $link})
-            $knownLinks[$key] = $true
+        foreach ($link in $DesktopAppLinks) {
+            $key = $link.ToLowerInvariant()
+            if (!$knownLinks.ContainsKey($key)) {
+                [void]$pins.Add([ordered]@{desktopAppLink = $link})
+                $knownLinks[$key] = $true
+            }
         }
+
+        New-Item -Path $policyPath -Force -ErrorAction Stop | Out-Null
+        $json = [ordered]@{pinnedList = @($pins)} | ConvertTo-Json -Depth 8 -Compress
+        Set-ItemProperty -Path $policyPath -Name $policyName -Type String -Value $json -ErrorAction Stop
+        Write-Output "Applied Windows Start pins policy for current user."
+        Write-Output "If pins do not appear immediately, sign out and sign in again."
+
+        Stop-Process -Name StartMenuExperienceHost -Force -ErrorAction SilentlyContinue
+    } catch {
+        Write-Output "Could not apply Windows Start pins policy: $($_.Exception.Message)"
+        Write-Output "Shortcuts were created in the Start menu; pin them manually if needed."
     }
-
-    New-Item -Path $policyPath -Force | Out-Null
-    $json = [ordered]@{pinnedList = @($pins)} | ConvertTo-Json -Depth 8 -Compress
-    Set-ItemProperty -Path $policyPath -Name $policyName -Type String -Value $json
-    Write-Output "Applied Windows Start pins policy for current user."
-    Write-Output "If pins do not appear immediately, sign out and sign in again."
-
-    Stop-Process -Name StartMenuExperienceHost -Force -ErrorAction SilentlyContinue
 }
 
 New-Item -ItemType Directory -Path $startMenuDir -Force | Out-Null

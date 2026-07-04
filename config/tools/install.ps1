@@ -1,3 +1,8 @@
+param(
+    [switch]$ApplyStartPinsPolicyOnly,
+    [string]$PinsFile
+)
+
 $ErrorActionPreference = "Stop"
 
 $root = $PSScriptRoot
@@ -150,10 +155,72 @@ function Set-StartPinsPolicy {
         Write-Output "If pins do not appear immediately, sign out and sign in again."
 
         Stop-Process -Name StartMenuExperienceHost -Force -ErrorAction SilentlyContinue
+        return [pscustomobject]@{
+            Success = $true
+            AccessDenied = $false
+            Reason = $null
+        }
     } catch {
+        $accessDenied = $_.Exception -is [System.UnauthorizedAccessException] -or $_.Exception.Message -match "Access.*denied|拒绝访问|权限"
         Write-Output "Could not apply Windows Start pins policy: $($_.Exception.Message)"
         Write-Output "Shortcuts were created in the Start menu; pin them manually if needed."
+        return [pscustomobject]@{
+            Success = $false
+            AccessDenied = $accessDenied
+            Reason = $_.Exception.Message
+        }
     }
+}
+
+function Invoke-ElevatedStartPinsPolicy {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$DesktopAppLinks
+    )
+
+    $pinsFile = Join-Path $env:TEMP "win-start-pins-$([Guid]::NewGuid().ToString('N')).json"
+    try {
+        $DesktopAppLinks | ConvertTo-Json -Compress | Set-Content -LiteralPath $pinsFile -Encoding UTF8
+        Write-Output "Start pins policy needs elevation; requesting administrator approval..."
+
+        $arguments = @(
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            "`"$PSCommandPath`"",
+            "-ApplyStartPinsPolicyOnly",
+            "-PinsFile",
+            "`"$pinsFile`""
+        )
+        $process = Start-Process -FilePath "powershell.exe" -ArgumentList $arguments -Verb RunAs -WindowStyle Hidden -Wait -PassThru
+        if ($process.ExitCode -eq 0) {
+            Write-Output "Applied Windows Start pins policy with elevation."
+            return $true
+        }
+
+        Write-Output "Elevated Start pins policy helper failed with exit code $($process.ExitCode)."
+        return $false
+    } catch {
+        Write-Output "Could not request elevation for Start pins policy: $($_.Exception.Message)"
+        return $false
+    } finally {
+        Remove-Item -LiteralPath $pinsFile -Force -ErrorAction SilentlyContinue
+    }
+}
+
+if ($ApplyStartPinsPolicyOnly) {
+    if (!$PinsFile) {
+        throw "Missing pins file."
+    }
+
+    $desktopAppLinks = @(Get-Content -Raw -LiteralPath $PinsFile | ConvertFrom-Json)
+    $result = Set-StartPinsPolicy -DesktopAppLinks $desktopAppLinks
+    if ($result.Success) {
+        exit 0
+    }
+
+    exit 1
 }
 
 if (Test-Path -LiteralPath $scoopAppsDir) {
@@ -184,14 +251,17 @@ foreach ($tool in $tools) {
 
     $pinResult = Invoke-PinToStart -ShortcutPath $shortcutPath
     if ($pinResult.Success) {
-        Write-Output "Pinned: $shortcutPath"
+        Write-Output "Requested Start pin: $shortcutPath"
     } else {
-        Write-Output "Created shortcut, but could not pin automatically: $shortcutPath"
+        Write-Output "Created shortcut, but could not request Start pin: $shortcutPath"
         Write-Output "Pin reason: $($pinResult.Reason)"
         $pinFailures += $shortcutPath
     }
 }
 
-if ($pinFailures.Count -gt 0 -and [Environment]::OSVersion.Version.Build -ge 22000) {
-    Set-StartPinsPolicy -DesktopAppLinks $desktopAppLinks
+if ([Environment]::OSVersion.Version.Build -ge 22000) {
+    $policyResult = Set-StartPinsPolicy -DesktopAppLinks $desktopAppLinks
+    if (!$policyResult.Success -and $policyResult.AccessDenied) {
+        [void](Invoke-ElevatedStartPinsPolicy -DesktopAppLinks $desktopAppLinks)
+    }
 }

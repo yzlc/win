@@ -200,7 +200,7 @@ function Set-StartPinsPolicy {
             Reason = $null
         }
     } catch {
-        $accessDenied = $_.Exception -is [System.UnauthorizedAccessException] -or $_.Exception.Message -match "Access.*denied|拒绝访问|权限"
+        $accessDenied = $_.Exception -is [System.UnauthorizedAccessException] -or $_.Exception.Message -match "Access.*denied|registry access is not allowed|拒绝访问|权限"
         Write-Host "Could not apply Windows Start pins policy: $($_.Exception.Message)"
         Write-Host "Shortcuts were created in the Start menu; pin them manually if needed."
         return [pscustomobject]@{

@@ -19,5 +19,5 @@ Run scripts from an elevated command prompt only after reviewing the target file
 - `config/config.bat` runs each module `run.bat` one by one and reports failures.
 - `init/Default.cmd` applies `init/Default.preset`. It is intentionally guarded by a confirmation prompt because the preset changes system privacy, security, services, Windows apps, and UI settings.
 - Service startup tweaks are merged into `init/Win10.psm1` and applied from `init/Default.preset`.
-- On Windows 11, Start menu pinning falls back to the current user's `ConfigureStartPins` policy when the shell hides the legacy Pin to Start verb.
+- On Windows 11, generated tool shortcuts are placed under `Scoop Apps`; Windows may still block programmatic Start pinning, so the installer verifies pin attempts and leaves the shortcuts ready for manual pinning when blocked.
 - Before uninstalling with Scoop, leave the package directory or let the manifest `pre_uninstall` move the shell to `%USERPROFILE%`.

@@ -1,14 +1,9 @@
-param(
-    [switch]$ApplyStartPinsPolicyOnly,
-    [string]$PinsFile
-)
-
 $ErrorActionPreference = "Stop"
 
 $root = $PSScriptRoot
 $startMenuRoot = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
-$startMenuDir = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\win"
 $scoopAppsDir = Join-Path $startMenuRoot "Scoop Apps"
+$legacyStartMenuDir = Join-Path $startMenuRoot "win"
 
 $tools = @(
     @{
@@ -41,266 +36,282 @@ $legacyShortcutNames = @(
     "Win - zju-connect.lnk"
 )
 
+$currentShortcutNames = @($tools | ForEach-Object { "$($_.Name).lnk" })
+
+function Get-OwnedDesktopAppLinks {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$ShortcutNames
+    )
+
+    $links = New-Object System.Collections.ArrayList
+    foreach ($name in $ShortcutNames) {
+        [void]$links.Add("%APPDATA%\Microsoft\Windows\Start Menu\Programs\$name")
+        [void]$links.Add("%APPDATA%\Microsoft\Windows\Start Menu\Programs\win\$name")
+        [void]$links.Add("%APPDATA%\Microsoft\Windows\Start Menu\Programs\Scoop Apps\$name")
+    }
+
+    return @($links)
+}
+
+function Remove-StaleShortcuts {
+    foreach ($shortcutName in $legacyShortcutNames) {
+        Remove-Item -LiteralPath (Join-Path $scoopAppsDir $shortcutName) -Force -ErrorAction SilentlyContinue
+    }
+
+    if (Test-Path -LiteralPath $legacyStartMenuDir) {
+        foreach ($shortcutName in @($legacyShortcutNames + $currentShortcutNames)) {
+            Remove-Item -LiteralPath (Join-Path $legacyStartMenuDir $shortcutName) -Force -ErrorAction SilentlyContinue
+        }
+
+        $remaining = Get-ChildItem -LiteralPath $legacyStartMenuDir -Force -ErrorAction SilentlyContinue
+        if (!$remaining) {
+            Remove-Item -LiteralPath $legacyStartMenuDir -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+function Remove-StaleStartPinsPolicyEntries {
+    $policyPath = "HKCU:\Software\Policies\Microsoft\Windows\Explorer"
+    $policyName = "ConfigureStartPins"
+
+    $existing = Get-ItemProperty -Path $policyPath -Name $policyName -ErrorAction SilentlyContinue
+    if (!$existing -or !$existing.$policyName) {
+        return
+    }
+
+    try {
+        $ownedLinks = @{}
+        foreach ($link in (Get-OwnedDesktopAppLinks -ShortcutNames @($legacyShortcutNames + $currentShortcutNames))) {
+            $ownedLinks[$link.ToLowerInvariant()] = $true
+        }
+
+        $policy = $existing.$policyName | ConvertFrom-Json
+        $remainingPins = New-Object System.Collections.ArrayList
+        $removedCount = 0
+
+        foreach ($pin in @($policy.pinnedList)) {
+            $keepPin = $true
+            if ($pin.desktopAppLink) {
+                $pinLink = [string]$pin.desktopAppLink
+                $pinKey = $pinLink.ToLowerInvariant()
+                $isOwnedPin = $ownedLinks.ContainsKey($pinKey)
+                $isMalformedOwnedPin = $pinLink -match "\.lnk\s+%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\(win|Scoop Apps)\\"
+                if ($isOwnedPin -or $isMalformedOwnedPin) {
+                    $keepPin = $false
+                }
+            }
+
+            if ($keepPin) {
+                [void]$remainingPins.Add($pin)
+            } else {
+                $removedCount++
+            }
+        }
+
+        if ($removedCount -eq 0) {
+            return
+        }
+
+        if ($remainingPins.Count -eq 0) {
+            Remove-ItemProperty -Path $policyPath -Name $policyName -ErrorAction Stop
+        } else {
+            $policy.pinnedList = @($remainingPins)
+            $json = $policy | ConvertTo-Json -Depth 8 -Compress
+            Set-ItemProperty -Path $policyPath -Name $policyName -Type String -Value $json -ErrorAction Stop
+        }
+
+        Write-Output "Removed stale Start pins policy entries from previous installer versions."
+    } catch {
+        Write-Output "Could not clean stale Start pins policy entries: $($_.Exception.Message)"
+    }
+}
+
+function New-ToolShortcut {
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Tool,
+
+        [Parameter(Mandatory = $true)]
+        [object]$ShortcutShell
+    )
+
+    if (!(Test-Path -LiteralPath $Tool.Script)) {
+        throw "Missing tool script: $($Tool.Script)"
+    }
+
+    $scriptPath = (Resolve-Path -LiteralPath $Tool.Script).Path
+    $shortcutPath = Join-Path $scoopAppsDir "$($Tool.Name).lnk"
+    $shortcut = $ShortcutShell.CreateShortcut($shortcutPath)
+    $shortcut.TargetPath = $env:ComSpec
+    $shortcut.Arguments = "/d /c `"$scriptPath`""
+    $shortcut.WorkingDirectory = Split-Path -Parent $scriptPath
+    $shortcut.Description = "Launch $($Tool.Name)"
+    $shortcut.Save()
+
+    return $shortcutPath
+}
+
+function Test-PinToStartVerbName {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$VerbName
+    )
+
+    return $VerbName -match "Pin to Start|固定到.*开始"
+}
+
+function Test-UnpinFromStartVerbName {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$VerbName
+    )
+
+    return $VerbName -match "Unpin from Start|从.*开始.*取消固定|取消.*开始.*固定"
+}
+
+function Get-ShortcutStartPinState {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ShortcutPath,
+
+        [Parameter(Mandatory = $true)]
+        [object]$Shell
+    )
+
+    $folderPath = Split-Path -Parent $ShortcutPath
+    $leafName = Split-Path -Leaf $ShortcutPath
+    $folder = $Shell.Namespace($folderPath)
+    if ($null -eq $folder) {
+        return [pscustomobject]@{
+            Success = $false
+            IsPinned = $false
+            PinVerb = $null
+            Reason = "Shell folder was not available."
+        }
+    }
+
+    $item = $folder.ParseName($leafName)
+    if ($null -eq $item) {
+        return [pscustomobject]@{
+            Success = $false
+            IsPinned = $false
+            PinVerb = $null
+            Reason = "Shell item was not available."
+        }
+    }
+
+    $pinVerb = $null
+    $isPinned = $false
+    foreach ($verb in @($item.Verbs())) {
+        $name = $verb.Name.Replace("&", "").Trim()
+        if (!$name) {
+            continue
+        }
+
+        if (Test-UnpinFromStartVerbName -VerbName $name) {
+            $isPinned = $true
+        } elseif (Test-PinToStartVerbName -VerbName $name) {
+            $pinVerb = $verb
+        }
+    }
+
+    return [pscustomobject]@{
+        Success = $true
+        IsPinned = $isPinned
+        PinVerb = $pinVerb
+        Reason = $null
+    }
+}
+
 function Invoke-PinToStart {
     param(
         [Parameter(Mandatory = $true)]
         [string]$ShortcutPath
     )
 
-    try {
-        $shell = New-Object -ComObject Shell.Application
-        $folderPath = Split-Path -Parent $ShortcutPath
-        $leafName = Split-Path -Leaf $ShortcutPath
-        $folder = $shell.Namespace($folderPath)
-        if ($null -eq $folder) {
-            return [pscustomobject]@{
-                Success = $false
-                Reason = "Shell folder was not available."
-            }
-        }
+    $shell = New-Object -ComObject Shell.Application
+    $lastReason = $null
 
-        $item = $folder.ParseName($leafName)
-        if ($null -eq $item) {
-            return [pscustomobject]@{
-                Success = $false
-                Reason = "Shell item was not available."
-            }
-        }
-
-        $failureReason = $null
-        try {
-            $item.InvokeVerb("startpin")
-            return [pscustomobject]@{
-                Success = $true
-                Reason = $null
-            }
-        } catch {
-            $failureReason = $_.Exception.Message
-        }
-
-        foreach ($verb in @($item.Verbs())) {
-            $name = $verb.Name.Replace("&", "").Trim()
-            if ($name -match "Pin to Start|固定.*开始") {
-                try {
-                    $verb.DoIt()
-                    return [pscustomobject]@{
-                        Success = $true
-                        Reason = $null
-                    }
-                } catch {
-                    $failureReason = $_.Exception.Message
-                }
-            }
-        }
-
-        if (!$failureReason) {
-            $failureReason = "Windows did not expose Pin to Start."
-        }
-
-        return [pscustomobject]@{
-            Success = $false
-            Reason = $failureReason
-        }
-    } catch {
-        return [pscustomobject]@{
-            Success = $false
-            Reason = $_.Exception.Message
-        }
-    }
-}
-
-function Normalize-DesktopAppLinks {
-    param(
-        [AllowEmptyCollection()]
-        [string[]]$DesktopAppLinks
-    )
-
-    $links = New-Object System.Collections.ArrayList
-    foreach ($link in @($DesktopAppLinks)) {
-        if ($null -eq $link) {
+    foreach ($attempt in 1..4) {
+        $state = Get-ShortcutStartPinState -ShortcutPath $ShortcutPath -Shell $shell
+        if (!$state.Success) {
+            $lastReason = $state.Reason
+            Start-Sleep -Milliseconds 300
             continue
         }
 
-        foreach ($part in ([string]$link -split "\s+(?=%APPDATA%\\)")) {
-            $trimmed = $part.Trim()
-            if ($trimmed) {
-                [void]$links.Add($trimmed)
-            }
-        }
-    }
-
-    return @($links)
-}
-
-function Set-StartPinsPolicy {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string[]]$DesktopAppLinks
-    )
-
-    $DesktopAppLinks = @(Normalize-DesktopAppLinks -DesktopAppLinks $DesktopAppLinks)
-    $desiredLinks = @{}
-    foreach ($link in $DesktopAppLinks) {
-        $desiredLinks[$link.ToLowerInvariant()] = $true
-    }
-
-    $policyPath = "HKCU:\Software\Policies\Microsoft\Windows\Explorer"
-    $policyName = "ConfigureStartPins"
-
-    try {
-        $pins = New-Object System.Collections.ArrayList
-
-        $existing = Get-ItemProperty -Path $policyPath -Name $policyName -ErrorAction SilentlyContinue
-        if ($existing -and $existing.$policyName) {
-            try {
-                $policy = $existing.$policyName | ConvertFrom-Json
-                foreach ($pin in @($policy.pinnedList)) {
-                    if ($pin.desktopAppLink) {
-                        $pinLink = [string]$pin.desktopAppLink
-                        $pinKey = $pinLink.ToLowerInvariant()
-                        $isExistingWinPin = $desiredLinks.ContainsKey($pinKey)
-                        $isMalformedWinPin = $pinLink -match "\.lnk\s+%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\win\\"
-                        if ($isExistingWinPin -or $isMalformedWinPin) {
-                            continue
-                        }
-                    }
-
-                    [void]$pins.Add($pin)
-                }
-            } catch {
-                Write-Host "Existing Start pins policy is not valid JSON; replacing it."
+        if ($state.IsPinned) {
+            return [pscustomobject]@{
+                Success = $true
+                Action = "AlreadyPinned"
+                Reason = $null
             }
         }
 
-        $knownLinks = @{}
-        foreach ($pin in $pins) {
-            if ($pin.desktopAppLink) {
-                $knownLinks[$pin.desktopAppLink.ToLowerInvariant()] = $true
+        if ($null -eq $state.PinVerb) {
+            $lastReason = "Windows did not expose a Pin to Start verb."
+            Start-Sleep -Milliseconds 300
+            continue
+        }
+
+        try {
+            $state.PinVerb.DoIt()
+        } catch {
+            return [pscustomobject]@{
+                Success = $false
+                Action = "Denied"
+                Reason = $_.Exception.Message
             }
         }
 
-        foreach ($link in $DesktopAppLinks) {
-            $key = $link.ToLowerInvariant()
-            if (!$knownLinks.ContainsKey($key)) {
-                [void]$pins.Add([ordered]@{desktopAppLink = $link})
-                $knownLinks[$key] = $true
+        Start-Sleep -Milliseconds 900
+        $verified = Get-ShortcutStartPinState -ShortcutPath $ShortcutPath -Shell $shell
+        if ($verified.Success -and $verified.IsPinned) {
+            return [pscustomobject]@{
+                Success = $true
+                Action = "Pinned"
+                Reason = $null
             }
         }
 
-        New-Item -Path $policyPath -Force -ErrorAction Stop | Out-Null
-        $json = [ordered]@{pinnedList = @($pins)} | ConvertTo-Json -Depth 8 -Compress
-        Set-ItemProperty -Path $policyPath -Name $policyName -Type String -Value $json -ErrorAction Stop
-        Write-Host "Applied Windows Start pins policy for current user."
-        Write-Host "If pins do not appear immediately, sign out and sign in again."
+        $lastReason = "Pin command completed, but Start did not report the shortcut as pinned."
+    }
 
-        Stop-Process -Name StartMenuExperienceHost -Force -ErrorAction SilentlyContinue
-        return [pscustomobject]@{
-            Success = $true
-            AccessDenied = $false
-            Reason = $null
-        }
-    } catch {
-        $accessDenied = $_.Exception -is [System.UnauthorizedAccessException] -or $_.Exception.Message -match "Access.*denied|registry access is not allowed|拒绝访问|权限"
-        Write-Host "Could not apply Windows Start pins policy: $($_.Exception.Message)"
-        Write-Host "Shortcuts were created in the Start menu; pin them manually if needed."
-        return [pscustomobject]@{
-            Success = $false
-            AccessDenied = $accessDenied
-            Reason = $_.Exception.Message
-        }
+    return [pscustomobject]@{
+        Success = $false
+        Action = "Unavailable"
+        Reason = $lastReason
     }
 }
 
-function Invoke-ElevatedStartPinsPolicy {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string[]]$DesktopAppLinks
-    )
+Remove-StaleShortcuts
+Remove-StaleStartPinsPolicyEntries
 
-    $pinsFile = Join-Path $env:TEMP "win-start-pins-$([Guid]::NewGuid().ToString('N')).json"
-    try {
-        ConvertTo-Json -InputObject @($DesktopAppLinks) -Compress | Set-Content -LiteralPath $pinsFile -Encoding UTF8
-        Write-Host "Start pins policy needs elevation; requesting administrator approval..."
+New-Item -ItemType Directory -Path $scoopAppsDir -Force | Out-Null
 
-        $arguments = @(
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            "`"$PSCommandPath`"",
-            "-ApplyStartPinsPolicyOnly",
-            "-PinsFile",
-            "`"$pinsFile`""
-        )
-        $process = Start-Process -FilePath "powershell.exe" -ArgumentList $arguments -Verb RunAs -WindowStyle Hidden -Wait -PassThru
-        if ($process.ExitCode -eq 0) {
-            Write-Host "Applied Windows Start pins policy with elevation."
-            return $true
-        }
-
-        Write-Host "Elevated Start pins policy helper failed with exit code $($process.ExitCode)."
-        return $false
-    } catch {
-        Write-Host "Could not request elevation for Start pins policy: $($_.Exception.Message)"
-        return $false
-    } finally {
-        Remove-Item -LiteralPath $pinsFile -Force -ErrorAction SilentlyContinue
-    }
-}
-
-if ($ApplyStartPinsPolicyOnly) {
-    if (!$PinsFile) {
-        throw "Missing pins file."
-    }
-
-    $desktopAppLinks = @(Get-Content -Raw -LiteralPath $PinsFile | ConvertFrom-Json)
-    $result = Set-StartPinsPolicy -DesktopAppLinks $desktopAppLinks
-    if ($result.Success) {
-        exit 0
-    }
-
-    exit 1
-}
-
-if (Test-Path -LiteralPath $scoopAppsDir) {
-    foreach ($shortcutName in @($legacyShortcutNames + ($tools | ForEach-Object { "$($_.Name).lnk" }))) {
-        Remove-Item -LiteralPath (Join-Path $scoopAppsDir $shortcutName) -Force -ErrorAction SilentlyContinue
-    }
-}
-
-New-Item -ItemType Directory -Path $startMenuDir -Force | Out-Null
 $shortcutShell = New-Object -ComObject WScript.Shell
 $pinFailures = @()
-$desktopAppLinks = @()
 
 foreach ($tool in $tools) {
-    if (!(Test-Path -LiteralPath $tool.Script)) {
-        throw "Missing tool script: $($tool.Script)"
-    }
-
-    $scriptPath = (Resolve-Path -LiteralPath $tool.Script).Path
-    $shortcutPath = Join-Path $startMenuDir "$($tool.Name).lnk"
-    $shortcut = $shortcutShell.CreateShortcut($shortcutPath)
-    $shortcut.TargetPath = $scriptPath
-    $shortcut.Arguments = ""
-    $shortcut.WorkingDirectory = Split-Path -Parent $scriptPath
-    $shortcut.Save()
-
-    $desktopAppLinks += "%APPDATA%\Microsoft\Windows\Start Menu\Programs\win\$($tool.Name).lnk"
+    $shortcutPath = New-ToolShortcut -Tool $tool -ShortcutShell $shortcutShell
+    Write-Output "Created Start menu shortcut: $shortcutPath"
 
     $pinResult = Invoke-PinToStart -ShortcutPath $shortcutPath
     if ($pinResult.Success) {
-        Write-Output "Requested Start pin: $shortcutPath"
+        if ($pinResult.Action -eq "AlreadyPinned") {
+            Write-Output "Start pin already exists: $shortcutPath"
+        } else {
+            Write-Output "Pinned to Start: $shortcutPath"
+        }
     } else {
-        Write-Output "Created shortcut, but could not request Start pin: $shortcutPath"
+        Write-Output "Could not pin to Start automatically: $shortcutPath"
         Write-Output "Pin reason: $($pinResult.Reason)"
         $pinFailures += $shortcutPath
     }
 }
 
-if ([Environment]::OSVersion.Version.Build -ge 22000) {
-    $policyResult = Set-StartPinsPolicy -DesktopAppLinks $desktopAppLinks
-    if (!$policyResult.Success -and $policyResult.AccessDenied) {
-        [void](Invoke-ElevatedStartPinsPolicy -DesktopAppLinks $desktopAppLinks)
-    }
+if ($pinFailures.Count -gt 0) {
+    Write-Output "Windows may block apps from pinning Start items programmatically."
+    Write-Output "The shortcuts are available under Start > All apps > Scoop Apps for manual pinning."
 }
